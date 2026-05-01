@@ -1,0 +1,84 @@
+name: Visit & Scroll URL on Schedule
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'  # Runs every 3 hours
+  workflow_dispatch:       # Lets you run it manually for testing
+
+# Fix for Node.js warning - safe to keep
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  visit-scroll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 0
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Create the visit script
+        run: |
+          cat > visit-scroll.js << 'EOF'
+          const { chromium } = require('playwright');
+
+          (async () => {
+            const url = process.env.TARGET_URL;
+            if (!url) {
+              console.error("❌ Error: TARGET_URL is missing. Please add it in Settings > Secrets.");
+              process.exit(1);
+            }
+
+            console.log("🌐 Starting visit to: " + url);
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage();
+
+            try {
+              console.log("📥 Loading page...");
+              await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+              console.log("✅ Page loaded!");
+
+              console.log("📜 Scrolling down slowly...");
+              await page.evaluate(async () => {
+                for (let i = 0; i < 200; i++) {
+                  window.scrollBy(0, 50);
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                  if (window.innerHeight + window.scrollY >= document.body.scrollHeight) {
+                    console.log("✅ Reached bottom of page");
+                    break;
+                  }
+                }
+              });
+
+              console.log("🎉 SUCCESS: Visit and scroll completed!");
+              process.exit(0);
+            } catch (err) {
+              console.error("❌ FAILED: " + err.message);
+              process.exit(1);
+            } finally {
+              await browser.close();
+            }
+          })();
+          EOF
+
+      - name: Run the visit script
+        env:
+          TARGET_URL: ${{ secrets.TARGET_URL }}
+        run: node visit-scroll.js
+
+      - name: Show summary
+        if: always()
+        run: |
+          echo "### 📋 Visit Report" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: ${{ secrets.TARGET_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Result: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Time: $(date)" >> $GITHUB_STEP_SUMMARY
