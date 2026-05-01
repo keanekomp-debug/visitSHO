@@ -1,84 +1,84 @@
 name: Visit & Scroll URL on Schedule
+
 on:
   schedule:
-    - cron: '0 */3 * * *'  # Every 3 hours
-  workflow_dispatch:      # Manual trigger for testing
+    - cron: '0 */3 * * *'  # Runs every 3 hours
+  workflow_dispatch:       # Lets you run it manually for testing
+
+# Fix for Node.js warning - safe to keep
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   visit-scroll:
     runs-on: ubuntu-latest
-    timeout-minutes: 10   # Prevent runaway jobs
+    timeout-minutes: 0
+
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install Playwright & Browser Dependencies
+      - name: Install Playwright
         run: |
           npm init -y
           npm install playwright
           npx playwright install --with-deps chromium
 
-      - name: Create Visit Script
+      - name: Create the visit script
         run: |
-          cat > visit-scroll.js << 'SCRIPT'
+          cat > visit-scroll.js << 'EOF'
           const { chromium } = require('playwright');
 
           (async () => {
             const url = process.env.TARGET_URL;
             if (!url) {
-              console.error("❌ Error: TARGET_URL environment variable is not set.");
+              console.error("❌ Error: TARGET_URL is missing. Please add it in Settings > Secrets.");
               process.exit(1);
             }
 
-            console.log(`🌐 Target URL: ${url}`);
+            console.log("🌐 Starting visit to: " + url);
             const browser = await chromium.launch({ headless: true });
             const page = await browser.newPage();
 
             try {
-              console.log("📥 Navigating to URL...");
+              console.log("📥 Loading page...");
               await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-              console.log("✅ Page loaded successfully.");
+              console.log("✅ Page loaded!");
 
-              console.log("📜 Starting slow scroll...");
+              console.log("📜 Scrolling down slowly...");
               await page.evaluate(async () => {
-                const scrollStep = 50;      // Pixels per scroll
-                const delayMs = 100;        // Milliseconds between scrolls
-                const maxSteps = 200;       // Safety limit to prevent infinite loops
-
-                for (let i = 0; i < maxSteps; i++) {
-                  window.scrollBy(0, scrollStep);
-                  await new Promise(resolve => setTimeout(resolve, delayMs));
-
-                  const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight;
-                  if (atBottom) {
-                    console.log("✅ Reached bottom of page.");
+                for (let i = 0; i < 200; i++) {
+                  window.scrollBy(0, 50);
+                  await new Promise(resolve => setTimeout(resolve, 100));
+                  if (window.innerHeight + window.scrollY >= document.body.scrollHeight) {
+                    console.log("✅ Reached bottom of page");
                     break;
                   }
                 }
               });
 
-              console.log("🎉 Action completed successfully.");
+              console.log("🎉 SUCCESS: Visit and scroll completed!");
               process.exit(0);
-            } catch (error) {
-              console.error(`❌ Failed: ${error.message}`);
+            } catch (err) {
+              console.error("❌ FAILED: " + err.message);
               process.exit(1);
             } finally {
               await browser.close();
             }
           })();
-          SCRIPT
+          EOF
 
-      - name: Execute Visit & Scroll
+      - name: Run the visit script
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
         run: node visit-scroll.js
 
-      - name: Publish Run Summary
+      - name: Show summary
         if: always()
         run: |
-          echo "### 📊 Visit & Scroll Report" >> $GITHUB_STEP_SUMMARY
-          echo "- **URL:** ${{ secrets.TARGET_URL }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Completed At:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Visit Report" >> $GITHUB_STEP_SUMMARY
+          echo "- URL: ${{ secrets.TARGET_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Result: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Time: $(date)" >> $GITHUB_STEP_SUMMARY
